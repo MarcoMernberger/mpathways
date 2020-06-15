@@ -4,11 +4,26 @@
 """gsea.py: Contains wrapper for Gene Set Enrichment Analysis."""
 
 from pathlib import Path
-from typing import Optional, Callable, List, Dict, Tuple, Any
+from typing import Optional, Callable, List, Dict, Tuple, Any, Union
 from mbf_externals import ExternalAlgorithm, ExternalAlgorithmStore
 from mbf_externals.util import download_zip_and_turn_into_tar_gzip, download_file
+from mbf_genomics.genes import Genes
+from mbf_genomics.annotator import Annotator
+from mbf_genomes import EnsemblGenome
+from .databases import (
+    GMTCollection,
+    MSigChipEnsembl,
+    CLSWriter,
+    GCTWriter,
+    GMTCollectionFromList,
+    generate_collection,
+)
+from datetime import datetime
+from pypipegraph import Job
 import pandas as pd
 import pypipegraph as ppg
+import subprocess
+import warnings
 
 
 __author__ = "Marco Mernberger"
@@ -16,45 +31,45 @@ __copyright__ = "Copyright (c) 2020 Marco Mernberger"
 __license__ = "mit"
 
 
-class GSEA(ExternalAlgorithm):
+global_instances = {}
 
+
+class GSEA(ExternalAlgorithm):
     def __init__(
         self,
         version: str = "_last_used",
         store: Optional[ExternalAlgorithmStore] = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(version=version, store=store, **kwargs)
         self.memory_in_mb = 16 * 1024
-        """
-        self.n_permutation = n_permutation
-        self.name = name
-        self.gene_groups = gene_groups
-        self.genome = genome
-        ppg.assert_uniqueness_of_object(self)
-        self.output_path = Path("results") / "GSEA" / self.name
-        self.output_path.mkdir(parents=True, exist_ok=True)
-        self.cache_path = Path("cache") / "GSEA" / self.name
-        self.cache_path.mkdir(parents=True, exist_ok=True)
-        self.gct_file = self.output_path / "input.gct"
-        self.cls_file = self.output_path / "input.cls"
-        self.chp_file = self.output_path / "input.chip"
-        self.gmt_file = self.output_path / "input.gmt"
-        self.do_collapse = collapse
-        self.plot_top_x = plot_top_x
-        self.set_min = set_min
-        self.set_max = set_max
-        self.permute = permute
-        self.command = [f"gatk-{self.version}/gatk"]
-        """        
-    latest_version = "4.0.3"
+        self.collapse_values = ["No_Collapse", "Collapse", "Remap_Only"]
+        self.collapse_modes = [
+            "Max_probe",
+            "Median_of_probes",
+            "Sum_of_probes",
+            "Mean_of_probes",
+        ]
+        self.weights = ["classic", "weighted", "weighted_p1.5", "weighted_p2"]
+        self.metrics = [
+            "Signal2Noise",
+            "tTest",
+            "Ratio_of_Classes",
+            "Diff_of_Classes",
+            "log2_Ratio_of_Classes",
+            "Cosine",
+            "Euclidean",
+            "Manhattan",
+            "Pearson",
+        ]
 
+    latest_version = "4.0.3"
 
     def fetch_version(self, version: str, target_filename: Path) -> None:
         """
         Takes care of the tool download.
 
-        Overrides the ExternalAlgorithm methood. Downloads the external method 
+        Overrides the ExternalAlgorithm methood. Downloads the external method
         to the prebuild location specified by the corresponding
         ExternalAlgorithmStore and packs it into a tar.gz file.
 
@@ -65,12 +80,10 @@ class GSEA(ExternalAlgorithm):
         target_filename : Path
             The path to the local tar.gz file.
         """
-        major = version[:version.rfind(".")]
-        url = f"https://www.gsea-msigdb.org/gsea/msigdb/download_file.jsp?filePath=/gsea/software/desktop/{major}/GSEA_Linux_{version}.zip"
-        print(url)
-        download_file(url, open("test.zip", "wb"))
+        major = version[: version.rfind(".")]
+        url = f"https://data.broadinstitute.org/gsea-msigdb/gsea/software/desktop/{major}/GSEA_Linux_{version}.zip"
         download_zip_and_turn_into_tar_gzip(
-            url, target_filename #  , chmod_x_files=[f"gatk-{version}/gatk"]
+            url, target_filename, chmod_x_files=[f"GSEA_Linux_{version}/gsea-cli.sh"]
         )
 
     @property
@@ -88,7 +101,10 @@ class GSEA(ExternalAlgorithm):
         return "GSEA"
 
     def build_cmd(
-        self, output_directory: Optional[Path], ncores: int, arguments: List[str]
+        self,
+        output_directory: Optional[Path],
+        ncores: int,
+        arguments: Union[None, List[str]],
     ):
         """
         Returns a command as a list of strings to be passed to subprocess.
@@ -111,15 +127,237 @@ class GSEA(ExternalAlgorithm):
         List[str]
             Command to subprocess as a list of strings.
         """
-        return self.command + arguments
+        if arguments is None:
+            arguments = []
+        return [
+            f"{self.path}/GSEA_Linux_{self.version}/gsea-cli.sh",
+            "GSEA",
+        ] + arguments
 
     def get_latest_version(self):
         """Returns the latest_version attribute."""
         return self.latest_version
 
+    def verify_kwargs(self, **kwargs):
+        accepted_parameters = [
+            "norm",
+            "permutations",
+            "set_min",
+            "set_max",
+            "balance_rnd",
+            "weight",
+            "metric",
+            "descending",
+            "absolute_sorting",
+            "top_x",
+            "result_dir",
+        ]
+        warnings.simplefilter("default", UserWarning)
+        for key in kwargs:
+            if key not in accepted_parameters:
+                warnings.warn(
+                    f"Keyword {key} argument not recognized, it will be ignored. Accepted arguments are: {accepted_parameters}."
+                )
+
+    def check_arguments(
+        self,
+        collection: GMTCollection,
+        gct: GCTWriter,
+        chip: MSigChipEnsembl,
+        clss: CLSWriter,
+        result_dir: Path,
+        **kwargs,
+    ):
+        arguments = []
+        """
+        collapse = kwargs.get("collapse", "No_Collapse")
+        if collapse not in self.collapse_values:
+            raise ValueError(f"Keyword argument 'collapse' mut be any of {self.collapse_values}, was {collapse}.")
+        collapse_mode = kwargs.get("collapse_mode", "Max_probe")
+        if collapse_mode not in self.collapse_modes:
+            raise ValueError(f"Keyword argument 'collapse_mode' mut be any of {self.collapse_modes}, was {collapse_mode}.")
+        """
+        self.verify_kwargs(**kwargs)
+        collapse = "Collapse"
+        collapse_mode = "Max_probe"
+        do_normalize = kwargs.get("norm", True)
+        norm = "meandiv" if do_normalize else "None"
+        permutations = kwargs.get("permutations", 1000)
+        perm_type = (
+            "phenotype"
+            if ((len(clss.columns_a_b[0]) >= 7) and (len(clss.columns_a_b) >= 7))
+            else "gene_set"
+        )
+        set_min = kwargs.get("set_min", 5)
+        set_max = kwargs.get("set_max", 3000)
+        rnd = kwargs.get("balance_rnd", False)
+        rnd_type = "equalize_and_balance" if rnd else "no_balance"
+        weight = kwargs.get("weight", "weighted")
+        if weight not in self.weights:
+            raise ValueError(
+                f"Keyword argument 'weight' mut be any of {self.weights}, was {weight}."
+            )
+        metric = kwargs.get("metric", "Signal2Noise")
+        if metric not in self.metrics:
+            raise ValueError(
+                f"Keyword argument 'metric' mut be any of {self.metrics}, was {metric}."
+            )
+        descending = "descending" if kwargs.get("descending", True) else "ascending"
+        sorting = "real" if not kwargs.get("absolute_sorting", False) else "abs"
+        topx = kwargs.get("top_x", 200)
+        now = kwargs.get("now", datetime.now())
+        arguments = [
+            "-res",
+            str(gct.filename),  # this needs to come from genes
+            "-cls",
+            str(clss.filename),  # this needs to come from comparison
+            "-chip",
+            str(chip.filename),  # we try using the MSigDB chips chip.chip
+            "-gmx",
+            str(
+                collection.filename
+            ),  # this needs to be done once for the GMTset collection.gmt
+            "-set_max",
+            str(set_max),
+            "-set_min",
+            str(set_min),
+            "-out",
+            str(result_dir),
+            "-collapse",
+            collapse,
+            "-mode",
+            collapse_mode,
+            "-norm",
+            norm,
+            "-nperm",
+            permutations,
+            "-permute",
+            perm_type,
+            "-rnd_type",
+            rnd_type,
+            "-scoring_scheme",
+            weight,
+            "-rpt_label",
+            now.strftime("%Y%m%d%H%M"),
+            "-metric",
+            metric,
+            "-sort",
+            sorting,
+            "-order",
+            descending,
+            "-create_svgs",
+            "true",
+            "-create_gcts",
+            "true",
+            "-include_only_symbols",
+            "true",
+            "-make_sets",
+            "true",
+            "-median",
+            "false",
+            "-num",
+            "100",
+            "-plot_top_x",
+            topx,
+            "-rnd_seed",
+            "timestamp",
+            "-save_rnd_lists",
+            "false",
+            "-zip_report",
+            "true",
+        ]
+        return arguments
+
+    def get_file_writer(
+        self,
+        genes: Genes,
+        phenotypes: Tuple[str, str],
+        columns_a_b: Tuple[List[str], List[str]],
+        chip: Union[MSigChipEnsembl, None],
+        dependencies: List[Job],
+    ):
+        cls_name = f"Cls_{phenotypes[0]}_vs_{phenotypes[1]}"
+        #        if cls_name in global_instances:
+        #            cls_writer = global_instances[cls_name]
+        #        else:
+        cls_writer = CLSWriter(phenotypes, columns_a_b)
+        #            global_instances[cls_name] = cls_writer
+        gct_name = f"Gct_{genes.name}_{phenotypes[0]}_vs_{phenotypes[1]}"
+        # if gct_name in global_instances:
+        #    gct_writer = global_instances[gct_name]
+        # else:
+        gct_writer = GCTWriter(genes, phenotypes, columns_a_b, gct_name, dependencies)
+        #            global_instances[gct_name] = gct_writer
+        return cls_writer, gct_writer
+
+    def __clean_date_folder(self, outdir, now):
+        month = now.strftime("%b").lower()
+        for subdir in outdir.iterdir():
+            if subdir.name.startswith(month)
+                print(subdir)
+                raise ValueError()
+
+    def run_on_counts(
+        self,
+        genes: Genes,
+        phenotypes: Tuple[str, str],
+        columns_a_b: Tuple[List[str], List[str]],
+        collection: Union[GMTCollection, List[GMTCollection], str, List[str]],
+        genome: EnsemblGenome,
+        chip: Optional[MSigChipEnsembl] = None,
+        annotators: List[Annotator] = [],
+        **kwargs,
+    ):
+        dependencies = []
+        if chip is None:
+            chip = MSigChipEnsembl(genome.species, "7.1")
+        for anno in annotators:
+            dependencies.append(genes.add_annotator(anno))
+        clss, gct = self.get_file_writer(
+            genes, phenotypes, columns_a_b, chip, dependencies
+        )
+        if isinstance(collection, str):
+            collection = generate_collection(collection, genome)
+        elif isinstance(collection, list):
+            if isinstance(collection[0], GMTCollection):
+                collection = GMTCollectionFromList(collection, genome)
+            elif isinstance(collection[0], str):
+                collection = GMTCollectionFromList(
+                    [generate_collection(x, genome) for x in collection], genome,
+                )
+            else:
+                raise ValueError(
+                    f"Don't know how to interpret this collection: {collection}."
+                )
+        result_dir = kwargs.get(
+            "result_dir",
+            Path("results/GSEA")
+            / genes.name
+            / f"{phenotypes[0]}_vs_{phenotypes[1]}"
+            / collection.name,
+        )
+        result_dir = result_dir.absolute()
+        result_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now()
+        kwargs["now"] = now
+        arguments = self.check_arguments(
+            collection, gct, chip, clss, result_dir, **kwargs
+        )
+        job = self.run(
+            str(result_dir),
+            arguments,
+            cwd=result_dir,
+            call_afterwards=__clean_date_folder(result_dir, now),
+            additional_files_created=None,
+        )
+        job.depends_on(chip.write())
+        job.depends_on(collection.write())
+        job.depends_on(clss.write())
+        job.depends_on(gct.write())
+        return job
+
 
 '''
-
     def __repr__(self) -> str:
         return f"GSEA({self.tool}, {self.options})"
 
@@ -189,75 +427,6 @@ class GSEA(ExternalAlgorithm):
 
 
 
-        def call_gsea(self):
-        """execute actual GSEA java program"""
-        gsea_cmd = str(gsea_path.resolve())
-        sentinel_path = self.output_path / "sentinel.txt"
-        #os.chdir(str(self.output_path))
-        def call():
-            gsea_call = [
-                "java",
-                # '-Ddebug=true',
-                "-cp",
-                gsea_cmd,
-                "-Xmx%im" % self.memory_in_mb,
-                "xtools.gsea.Gsea",
-                "-res",
-                str(self.gct_file.name),
-                "-cls",
-                str(self.cls_file.name),
-                "-chip",
-                str(self.chp_file.name),
-                # '-gmx', 'gseaftp.broadinstitute.org://pub/gsea/gene_sets/c2.all.v2.5.symbols.gmt'
-                "-collapse",
-                "true" if self.do_collapse else "false",
-                "-mode",
-                "Max_probe",
-                "-norm",
-                "meandiv",
-                "-nperm",
-                "%i" % self.n_permutation,
-                "-permute",
-                self.permute,
-                "-rnd_type",
-                "no_balance",
-                "-scoring_scheme",
-                "weighted",
-                "-rpt_label",
-                "my_analysis",
-                "-metric",
-                self.metric,
-                "-sort",
-                "real",
-                "-order",
-                "descending",
-                "-include_only_symbols",
-                "true",
-                "-make_sets",
-                "true",
-                "-gmx",
-                str(self.gmt_file.name),
-                "-median",
-                "false",
-                "-num",
-                "100",
-                "-plot_top_x",
-                "200",
-                "-rnd_seed",
-                "timestamp",
-                "-save_rnd_lists",
-                "false",
-                "-set_max",
-                "500",
-                "-set_min",
-                "5",
-                "-zip_report",
-                "false",
-                "-out",
-                ".",  # cwd is set to current dir...
-                "-gui",
-                "false",
-            ]
             handle = open(sentinel_path, "wb")
             handle.write(" ".join(gsea_call).encode())
             print(" ".join(gsea_call))

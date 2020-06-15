@@ -11,3 +11,4 @@ finally:
     del get_distribution, DistributionNotFound
 
 from .gsea import GSEA
+from .databases import GMTCollection, MSigChipEnsembl, MSigDBCollection
