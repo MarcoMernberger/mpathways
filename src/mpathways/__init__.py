@@ -12,3 +12,4 @@ finally:
 
 from .gsea import GSEA
 from .databases import GMTCollection, MSigChipEnsembl, MSigDBCollection
+from .ora import ORAHyper

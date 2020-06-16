@@ -41,6 +41,26 @@ class GMTCollection:  # ExternalDataBase
         # generate a GSEA usable input.gmt in a central location
         pass
 
+    @property
+    def ensembl_gmt(self):
+        return self.cache_dir / "ensembl.gmt"
+
+    def write_ensembl(self):
+        outfile = self.ensembl_gmt
+
+        def __dump():
+            with self._gmt.open("r") as inp:
+                with outfile.open("w") as outp:
+                    for line in inp.readlines():
+                        splits = line[:-1].split("\t")
+                        outp.write(f"{splits[0]}\t{splits[1]}")
+                        for gene_name in splits[2:]:
+                            stable_ids = list(self.genome.name_to_gene_ids(gene_name))
+                            stable = "\t".join(stable_ids)
+                            outp.write(f"\t{stable}")
+                        outp.write("\n")
+
+        return ppg.FileGeneratingJob(outfile, __dump).depends_on(self.write())
 
 class GMTCollectionFromList(GMTCollection):  # ExternalDataBase
     def __init__(
@@ -330,3 +350,44 @@ def generate_collection(name: str, genome: EnsemblGenome) -> GMTCollection:
         return IPACollection(name, genome)
     else:
         raise NotImplementedError(f"Don't know how to interpret this name: {name}.")
+
+
+def interpret_collection(
+    collection: Union[GMTCollection, List[GMTCollection], str, List[str]],
+    genome: EnsemblGenome
+    ) -> GMTCollection:
+    """
+    Turns a list of strings, GMTCollections or a single string into a single
+    GMTCollection on which all subsequent methods can work.
+
+    Parameters
+    ----------
+    collection : Union[GMTCollection, List[GMTCollection], str, List[str]]
+        [description]
+    genome : EnsemblGenome
+        [description]
+
+    Returns
+    -------
+    GMTCollection
+        [description]
+
+    Raises
+    ------
+    ValueError
+        [description]
+    """
+    if isinstance(collection, str):
+        collection = generate_collection(collection, genome)
+    elif isinstance(collection, list):
+        if isinstance(collection[0], GMTCollection):
+            collection = GMTCollectionFromList(collection, genome)
+        elif isinstance(collection[0], str):
+            collection = GMTCollectionFromList(
+                [generate_collection(x, genome) for x in collection], genome,
+            )
+        else:
+            raise ValueError(
+                f"Don't know how to interpret this collection: {collection}."
+            )
+    return collection

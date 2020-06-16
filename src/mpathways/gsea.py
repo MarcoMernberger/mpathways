@@ -16,7 +16,7 @@ from .databases import (
     CLSWriter,
     GCTWriter,
     GMTCollectionFromList,
-    generate_collection,
+    interpret_collection,
 )
 from datetime import datetime
 from pypipegraph import Job
@@ -293,7 +293,7 @@ class GSEA(ExternalAlgorithm):
     def __clean_date_folder(self, outdir, now):
         month = now.strftime("%b").lower()
         for subdir in outdir.iterdir():
-            if subdir.name.startswith(month)
+            if subdir.name.startswith(month):
                 print(subdir)
                 raise ValueError()
 
@@ -316,19 +316,7 @@ class GSEA(ExternalAlgorithm):
         clss, gct = self.get_file_writer(
             genes, phenotypes, columns_a_b, chip, dependencies
         )
-        if isinstance(collection, str):
-            collection = generate_collection(collection, genome)
-        elif isinstance(collection, list):
-            if isinstance(collection[0], GMTCollection):
-                collection = GMTCollectionFromList(collection, genome)
-            elif isinstance(collection[0], str):
-                collection = GMTCollectionFromList(
-                    [generate_collection(x, genome) for x in collection], genome,
-                )
-            else:
-                raise ValueError(
-                    f"Don't know how to interpret this collection: {collection}."
-                )
+        collection = interpret_collection(collection, genome)
         result_dir = kwargs.get(
             "result_dir",
             Path("results/GSEA")
