@@ -20,9 +20,7 @@ from .databases import (
 )
 from datetime import datetime
 from pypipegraph import Job
-import pandas as pd
 import pypipegraph as ppg
-import subprocess
 import warnings
 
 
@@ -31,7 +29,7 @@ __copyright__ = "Copyright (c) 2020 Marco Mernberger"
 __license__ = "mit"
 
 
-global_instances = {}
+global_instances: Dict[str, Any] = {}
 
 
 class GSEA(ExternalAlgorithm):
@@ -166,6 +164,7 @@ class GSEA(ExternalAlgorithm):
         chip: MSigChipEnsembl,
         clss: CLSWriter,
         result_dir: Path,
+        now: datetime,
         **kwargs,
     ):
         arguments = []
@@ -205,7 +204,6 @@ class GSEA(ExternalAlgorithm):
         descending = "descending" if kwargs.get("descending", True) else "ascending"
         sorting = "real" if not kwargs.get("absolute_sorting", False) else "abs"
         topx = kwargs.get("top_x", 200)
-        now = kwargs.get("now", datetime.now())
         arguments = [
             "-res",
             str(gct.filename),  # this needs to come from genes
@@ -327,15 +325,14 @@ class GSEA(ExternalAlgorithm):
         result_dir = result_dir.absolute()
         result_dir.mkdir(parents=True, exist_ok=True)
         now = datetime.now()
-        kwargs["now"] = now
         arguments = self.check_arguments(
-            collection, gct, chip, clss, result_dir, **kwargs
+            collection, gct, chip, clss, result_dir, now, **kwargs
         )
         job = self.run(
             str(result_dir),
             arguments,
             cwd=result_dir,
-            call_afterwards=__clean_date_folder(result_dir, now),
+            call_afterwards=self.__clean_date_folder(result_dir, now),
             additional_files_created=None,
         )
         job.depends_on(chip.write())
