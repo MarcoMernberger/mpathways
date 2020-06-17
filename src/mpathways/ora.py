@@ -167,7 +167,7 @@ class ORAHyper:
     def plot_bars(cls, ora_job: FileGeneratingJob, topx: int = 50, dependencies = [], **kwargs):
         """plot a bar plot of enrichment terms on the x-axis and log-p on the y axis"""
         ora_result_file = ora_job.job_id
-        plot_filename = Path(ora_result_file).with_suffix(f".top{topx}.svg")
+        plot_filename = Path(ora_result_file).with_suffix(f".top{topx}.png")
         dependencies.append(ora_job)
 
         def calc():
