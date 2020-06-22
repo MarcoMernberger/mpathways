@@ -164,7 +164,7 @@ class GSEA(ExternalAlgorithm):
         chip: MSigChipEnsembl,
         clss: CLSWriter,
         result_dir: Path,
-        now: datetime,
+        rpt_label: str,
         **kwargs,
     ):
         arguments = []
@@ -236,7 +236,7 @@ class GSEA(ExternalAlgorithm):
             "-scoring_scheme",
             weight,
             "-rpt_label",
-            now.strftime("%Y%m%d%H%M"),
+            rpt_label,
             "-metric",
             metric,
             "-sort",
@@ -288,12 +288,21 @@ class GSEA(ExternalAlgorithm):
         #            global_instances[gct_name] = gct_writer
         return cls_writer, gct_writer
 
-    def __clean_date_folder(self, outdir, now):
-        month = now.strftime("%b").lower()
+    def __clean_date_folder(self, outdir, now, rpt_label):
+        def __clean():
+            month = now.strftime("%b").lower()
+            for subdir in outdir.iterdir():
+                if subdir.name.startswith(month) and subdir.is_dir():
+                    subdir.rmdir()
+                if str(subdir.name).startswith(rpt_label):
+                    subdir.rename(str(subdir.parent / rpt_label))
+        return __clean
+
+    def __get_index_file(self, outdir, rpt_label):
         for subdir in outdir.iterdir():
-            if subdir.name.startswith(month):
-                print(subdir)
-                raise ValueError()
+            if subdir.startswith(rpt_label):
+                return subdir / "index.html" 
+        return None
 
     def run_on_counts(
         self,
@@ -325,21 +334,23 @@ class GSEA(ExternalAlgorithm):
         result_dir = result_dir.absolute()
         result_dir.mkdir(parents=True, exist_ok=True)
         now = datetime.now()
+        rpt_label = now.strftime("%Y%m%d%H%M")
+        index_html = result_dir / rpt_label / "index.html"
         arguments = self.check_arguments(
-            collection, gct, chip, clss, result_dir, now, **kwargs
+            collection, gct, chip, clss, result_dir, rpt_label, **kwargs
         )
         job = self.run(
             str(result_dir),
             arguments,
             cwd=result_dir,
-            call_afterwards=self.__clean_date_folder(result_dir, now),
-            additional_files_created=None,
+            call_afterwards=self.__clean_date_folder(result_dir, now, rpt_label),
+            additional_files_created=[],
         )
         job.depends_on(chip.write())
         job.depends_on(collection.write())
         job.depends_on(clss.write())
         job.depends_on(gct.write())
-        return job
+        return job, index_html
 
 
 '''
