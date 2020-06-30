@@ -144,13 +144,10 @@ class ORAHyper:
                 result['Query size including non-annotated'].append(query_size_including_non_annotated)
                 result['p-value'].append(p_value)
                 result['Description'].append(description[set_name])
-                genes_str = ", ".join(list(sorted(drawn))[:100])
+                genes_str = ", ".join(list(sorted(drawn)))
                 result['Genes'].append(genes_str)
-                gene_names = [get_gene_name(x) for x in list(sorted(drawn))[:100]]
+                gene_names = [get_gene_name(x) for x in list(sorted(drawn))]
                 gene_names = ", ".join(gene_names)
-                if len(drawn) > 100:
-                    genes_str += '...'
-                    gene_names = '...'
                 result['GeneNames'].append(gene_names)
             df = pd.DataFrame(result)
             fdr_control_benjamini_hochberg(df, 'p-value', 'Benjamini')

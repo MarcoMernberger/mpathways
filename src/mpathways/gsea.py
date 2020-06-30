@@ -20,9 +20,9 @@ from .databases import (
 )
 from datetime import datetime
 from pypipegraph import Job
+from bs4 import BeautifulSoup
 import pypipegraph as ppg
 import warnings
-
 
 __author__ = "Marco Mernberger"
 __copyright__ = "Copyright (c) 2020 Marco Mernberger"
@@ -295,14 +295,26 @@ class GSEA(ExternalAlgorithm):
                 if subdir.name.startswith(month) and subdir.is_dir():
                     subdir.rmdir()
                 if str(subdir.name).startswith(rpt_label):
-                    subdir.rename(str(subdir.parent / rpt_label))
+                    new_name = str(subdir.parent / rpt_label)
+                    subdir = subdir.rename(new_name)
+                    self.__create_main_index(Path(new_name))
         return __clean
 
     def __get_index_file(self, outdir, rpt_label):
         for subdir in outdir.iterdir():
             if subdir.startswith(rpt_label):
-                return subdir / "index.html" 
+                return subdir / "index.html"
         return None
+
+    def __create_main_index(self, folder: Path):
+        index_file = folder / "index.html"
+        with (folder.parent / "index.html").open("w") as outp:
+            soup = BeautifulSoup(index_file.open("r"), "html")
+            for x in soup.find_all("a"):
+                href = x.attrs["href"]
+                if not href.startswith("http"):
+                    x.attrs["href"] = str(Path(folder.name) / href)
+            outp.write(soup.prettify())
 
     def run_on_counts(
         self,
@@ -335,7 +347,7 @@ class GSEA(ExternalAlgorithm):
         result_dir.mkdir(parents=True, exist_ok=True)
         now = datetime.now()
         rpt_label = now.strftime("%Y%m%d%H%M")
-        index_html = result_dir / rpt_label / "index.html"
+        index_html = result_dir / "index.html"
         arguments = self.check_arguments(
             collection, gct, chip, clss, result_dir, rpt_label, **kwargs
         )
@@ -344,13 +356,13 @@ class GSEA(ExternalAlgorithm):
             arguments,
             cwd=result_dir,
             call_afterwards=self.__clean_date_folder(result_dir, now, rpt_label),
-            additional_files_created=[],
+            additional_files_created=[index_html],
         )
         job.depends_on(chip.write())
         job.depends_on(collection.write())
         job.depends_on(clss.write())
         job.depends_on(gct.write())
-        return job, index_html
+        return job, Path(job.filenames[1])
 
 
 '''
