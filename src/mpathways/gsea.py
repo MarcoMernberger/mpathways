@@ -149,6 +149,7 @@ class GSEA(ExternalAlgorithm):
             "absolute_sorting",
             "top_x",
             "result_dir",
+            "permutation_type"
         ]
         warnings.simplefilter("default", UserWarning)
         for key in kwargs:
@@ -182,11 +183,12 @@ class GSEA(ExternalAlgorithm):
         do_normalize = kwargs.get("norm", True)
         norm = "meandiv" if do_normalize else "None"
         permutations = kwargs.get("permutations", 1000)
-        perm_type = (
+        perm_type_auto = (
             "phenotype"
             if ((len(clss.columns_a_b[0]) >= 7) and (len(clss.columns_a_b) >= 7))
             else "gene_set"
         )
+        perm_type = kwargs.get("permutation_type", perm_type_auto)
         set_min = kwargs.get("set_min", 5)
         set_max = kwargs.get("set_max", 3000)
         rnd = kwargs.get("balance_rnd", False)
@@ -274,18 +276,9 @@ class GSEA(ExternalAlgorithm):
         chip: Union[MSigChipEnsembl, None],
         dependencies: List[Job],
     ):
-        cls_name = f"Cls_{phenotypes[0]}_vs_{phenotypes[1]}"
-        #        if cls_name in global_instances:
-        #            cls_writer = global_instances[cls_name]
-        #        else:
         cls_writer = CLSWriter(phenotypes, columns_a_b)
-        #            global_instances[cls_name] = cls_writer
         gct_name = f"Gct_{genes.name}_{phenotypes[0]}_vs_{phenotypes[1]}"
-        # if gct_name in global_instances:
-        #    gct_writer = global_instances[gct_name]
-        # else:
         gct_writer = GCTWriter(genes, phenotypes, columns_a_b, gct_name, dependencies)
-        #            global_instances[gct_name] = gct_writer
         return cls_writer, gct_writer
 
     def __clean_date_folder(self, outdir, now, rpt_label):
