@@ -213,15 +213,27 @@ class MSigChipEnsembl:
         """
         if species == "Homo_sapiens":
             self.species = "Human"
+            self.url = f"https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/{self.species}_ENSEMBL_Gene_MSigDB.v{version}.chip"
         elif species == "Mus_musculus":
             self.species = "Mouse"
+            if version == "7.0":
+                self.url = "https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/Mouse_ENSEMBL_Gene_ID_MSigDB.v7.0.chip"
+            elif version == "7.1":
+                self.url = "https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/Mouse_ENSEMBL_Gene_ID_to_Human_Orthologs_MSigDB.v7.1.chip"
+            elif version == "7.2":
+                self.url = f"https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/Mouse_ENSEMBL_Gene_ID_Human_Orthologs_MSigDB.v{version}.chip"
         elif species == "Rattus_norvegicus":
             self.species = "Rat"
+            if version == "7.0":
+                self.url = "https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/Rat_ENSEMBL_Gene_ID_MSigDB.v7.0.chip"
+            elif version == "7.1":
+                self.url = "https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/Rat_ENSEMBL_Gene_ID_to_Human_Orthologs_MSigDB.v7.1.chip	30-Mar-2020 16:56"
+            elif version == "7.2":
+                self.url = f"https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/Rat_ENSEMBL_Gene_ID_Human_Orthologs_MSigDB.v{version}.chip"
         else:
             raise ValueError(
                 f"Currently the species {species} is not supported. Check MsigDB chip files at https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/."
             )
-        self.url = f"https://data.broadinstitute.org/gsea-msigdb/msigdb/annotations_versioned/{self.species}_ENSEMBL_Gene_MSigDB.v{version}.chip"
         self.name = self.__class__.generate_name(species, version)
         self.version = version
         self.cache_dir = Path("cache") / "chip" / self.name
