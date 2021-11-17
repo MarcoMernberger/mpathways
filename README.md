@@ -5,7 +5,8 @@ Pathway analysis for the mbf framework
 
 ## Description
 
-A longer description of your project goes here...
+This package includes all pathay analysis tools regularly applied in the
+mbf framework.
 
 
 ## Note
