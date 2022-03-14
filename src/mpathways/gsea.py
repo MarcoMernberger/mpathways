@@ -4,7 +4,7 @@
 """gsea.py: Contains wrapper for Gene Set Enrichment Analysis."""
 
 from pathlib import Path
-from typing import Optional, Callable, List, Dict, Tuple, Any, Union
+from typing import Optional, List, Dict, Tuple, Any, Union
 from mbf_externals import ExternalAlgorithm, ExternalAlgorithmStore
 from mbf_externals.util import download_zip_and_turn_into_tar_gzip, download_file
 from mbf_genomics.genes import Genes
@@ -23,6 +23,7 @@ from pypipegraph import Job
 from bs4 import BeautifulSoup
 import pypipegraph as ppg
 import warnings
+import os
 
 __author__ = "Marco Mernberger"
 __copyright__ = "Copyright (c) 2020 Marco Mernberger"
@@ -62,6 +63,22 @@ class GSEA(ExternalAlgorithm):
         ]
 
     latest_version = "4.0.3"
+
+    @property
+    def java_path(self):
+        path = list((self.path / f"GSEA_Linux_{self.version}").glob("jdk*"))[0] / "bin"
+        return path
+
+    def unpacked_path(self):
+        return self.store.get_unpacked_path("GSEA", self.version)
+
+    def unpack(self):
+        self.store.unpack_version(self.name, self.version)
+        self.__chmod_java()
+
+    def __chmod_java(self):
+        for filename in self.java_path.iterdir():
+            os.chmod(filename, 111)
 
     def fetch_version(self, version: str, target_filename: Path) -> None:
         """
@@ -128,7 +145,8 @@ class GSEA(ExternalAlgorithm):
         if arguments is None:
             arguments = []
         return [
-            f"{self.path}/GSEA_Linux_{self.version}/gsea-cli.sh",
+            # f"{self.path}/GSEA_Linux_{self.version}/gsea-cli.sh",
+            "gsea-cli.sh",
             "GSEA",
         ] + arguments
 
@@ -149,7 +167,7 @@ class GSEA(ExternalAlgorithm):
             "absolute_sorting",
             "top_x",
             "result_dir",
-            "permutation_type"
+            "permutation_type",
         ]
         warnings.simplefilter("default", UserWarning)
         for key in kwargs:
@@ -214,9 +232,7 @@ class GSEA(ExternalAlgorithm):
             "-chip",
             str(chip.filename),  # we try using the MSigDB chips chip.chip
             "-gmx",
-            str(
-                collection.filename
-            ),  # this needs to be done once for the GMTset collection.gmt
+            str(collection.filename),  # this needs to be done once for the GMTset collection.gmt
             "-set_max",
             str(set_max),
             "-set_min",
@@ -291,6 +307,7 @@ class GSEA(ExternalAlgorithm):
                     new_name = str(subdir.parent / rpt_label)
                     subdir = subdir.rename(new_name)
                     self.__create_main_index(Path(new_name))
+
         return __clean
 
     def __get_index_file(self, outdir, rpt_label):
@@ -325,9 +342,7 @@ class GSEA(ExternalAlgorithm):
             chip = MSigChipEnsembl(genome.species, "7.1")
         for anno in annotators:
             dependencies.append(genes.add_annotator(anno))
-        clss, gct = self.get_file_writer(
-            genes, phenotypes, columns_a_b, chip, dependencies
-        )
+        clss, gct = self.get_file_writer(genes, phenotypes, columns_a_b, chip, dependencies)
         collection = interpret_collection(collection, genome)
         result_dir = kwargs.get(
             "result_dir",
