@@ -5,11 +5,10 @@
 
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Any, Union
-from mbf_externals import ExternalAlgorithm, ExternalAlgorithmStore
-from mbf_externals.util import download_zip_and_turn_into_tar_gzip, download_file
-from mbf_genomics.genes import Genes
-from mbf_genomics.annotator import Annotator
-from mbf_genomes import EnsemblGenome
+from mbf.externals.util import download_zip_and_turn_into_tar_gzip, download_file
+from mbf.genomics.genes import Genes
+from mbf.genomics.annotator import Annotator
+from mbf.genomes import EnsemblGenome
 from .databases import (
     GMTCollection,
     MSigChipEnsembl,
@@ -33,15 +32,14 @@ __license__ = "mit"
 global_instances: Dict[str, Any] = {}
 
 
-class GSEA(ExternalAlgorithm):
+class GSEA:
     def __init__(
         self,
-        version: str = "_last_used",
-        store: Optional[ExternalAlgorithmStore] = None,
+        version: str = "4.0.3",
         **kwargs,
     ):
-        super().__init__(version=version, store=store, **kwargs)
         self.memory_in_mb = 16 * 1024
+        self.version = version
         self.collapse_values = ["No_Collapse", "Collapse", "Remap_Only"]
         self.collapse_modes = [
             "Max_probe",
@@ -61,8 +59,6 @@ class GSEA(ExternalAlgorithm):
             "Manhattan",
             "Pearson",
         ]
-
-    latest_version = "4.0.3"
 
     @property
     def java_path(self):
@@ -104,9 +100,7 @@ class GSEA(ExternalAlgorithm):
     @property
     def name(self) -> str:
         """
-        Returns the name of the external method for version handling.
-
-        Overrides the ExternalAlgorithm method.
+        Returns the name of the encapsulated method for version handling.
 
         Returns
         -------

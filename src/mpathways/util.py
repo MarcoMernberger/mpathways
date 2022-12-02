@@ -6,11 +6,11 @@
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple, Any, Union
 from pypipegraph import Job, FileGeneratingJob
-from mbf_genomics.genes import Genes
+from mbf.genomics.genes import Genes
 from pandas import DataFrame
 import pandas as pd
 import pypipegraph as ppg
-import mbf_genomics
+import mbf.genomics
 import scipy
 import numpy as np
 
@@ -20,7 +20,12 @@ __copyright__ = "Copyright (c) 2020 Marco Mernberger"
 __license__ = "mit"
 
 
-def write_cls(output_directory: Path, phenotypes: Tuple[str, str], columns_a_b: Tuple[List[str], List[str]], dependencies: List[Job] = []) -> FileGeneratingJob:
+def write_cls(
+    output_directory: Path,
+    phenotypes: Tuple[str, str],
+    columns_a_b: Tuple[List[str], List[str]],
+    dependencies: List[Job] = [],
+) -> FileGeneratingJob:
     """
     Creates a Job that writes class information file for GSEA at a specified
     folder. A file named imput.cls is created.
@@ -57,7 +62,13 @@ def write_cls(output_directory: Path, phenotypes: Tuple[str, str], columns_a_b: 
     return ppg.FileGeneratingJob(outfile, __dump).depends_on(dependencies)
 
 
-def write_gct(genes_or_dataframe: Union[Genes, DataFrame], output_directory: Path, phenotypes: Tuple[str, str], columns_a_b: Tuple[List[str], List[str]], dependencies: List[Job] = []) -> FileGeneratingJob:
+def write_gct(
+    genes_or_dataframe: Union[Genes, DataFrame],
+    output_directory: Path,
+    phenotypes: Tuple[str, str],
+    columns_a_b: Tuple[List[str], List[str]],
+    dependencies: List[Job] = [],
+) -> FileGeneratingJob:
     """
     Creates a Job that writes expression data for GSEA at a specified
     folder. A file named imput.gct is created.
@@ -81,7 +92,10 @@ def write_gct(genes_or_dataframe: Union[Genes, DataFrame], output_directory: Pat
     output_directory.mkdir(parents=True, exist_ok=True)
     outfile = output_directory / "input.gct"
     if isinstance(genes_or_dataframe, Genes):
-        dependencies.append(genes_or_dataframe.add_annotator(mbf_genomics.genes.annotators.Description()))
+        dependencies.append(
+            genes_or_dataframe.add_annotator(mbf.genomics.genes.annotators.Description())
+        )
+
     def __dump():
         df = genes_or_dataframe
         if isinstance(genes_or_dataframe, Genes):
@@ -89,7 +103,9 @@ def write_gct(genes_or_dataframe: Union[Genes, DataFrame], output_directory: Pat
         elif isinstance(genes_or_dataframe, DataFrame):
             df = df.copy()
         else:
-            raise ValueError(f"Parameter genes_or_dataframe must be an instance of Genes or DataFrame, was {type(genes_or_dataframe)}.")
+            raise ValueError(
+                f"Parameter genes_or_dataframe must be an instance of Genes or DataFrame, was {type(genes_or_dataframe)}."
+            )
         with outfile.open("w") as handle:
             handle.write("#1.2\n")
             handle.write(f"{len(df)}\t{len(columns_a_b[0]) + len(columns_a_b[1])}\n")
@@ -118,7 +134,7 @@ def _benjamini_hochberg(col):
     This is a direct translation from the R code, in essence.
     """
     p = np.asfarray(col)
-    if (pd.isnull(p).any()):
+    if pd.isnull(p).any():
         orig_idx = np.array(list(range(len(p))))
         is_nan = pd.isnull(p)
         q_ommiting_nans = _benjamini_hochberg(p[~is_nan])
@@ -135,10 +151,10 @@ def _benjamini_hochberg(col):
         q = np.minimum(1, np.minimum.accumulate(steps * p[by_descend]))
         return q[by_orig]
 
-def fdr_control_benjamini_hochberg(df,
-                                   p_value_column='p-value',
-                                   output_column='benjamini_hochberg',
-                                   drop_output_if_exists=False):
+
+def fdr_control_benjamini_hochberg(
+    df, p_value_column="p-value", output_column="benjamini_hochberg", drop_output_if_exists=False
+):
     """Calculate the benjamini hochberg adjusted p-values in order to control false discovery rate
     Adds two columns, output_column and output_column + '_rank', since you need to order
     the p-values later to decide if a given value is significant.
@@ -147,11 +163,11 @@ def fdr_control_benjamini_hochberg(df,
         if drop_output_if_exists:
             df = df.drop(output_column, axis=1)
         else:
-            raise ValueError(
-                "Dataframe already has a column called %s" % output_column)
+            raise ValueError("Dataframe already has a column called %s" % output_column)
     col = df[p_value_column]
     bh = _benjamini_hochberg(col)
     df.loc[:, output_column] = bh
+
 
 def hypergeometric_test(query_set, reference_set, background_set):
     """Query set is what you observed, reference set is what you compare against,
@@ -167,24 +183,28 @@ def hypergeometric_test(query_set, reference_set, background_set):
     no_of_white_balls_drawn = len(drawn)
     no_of_black_balls_in_urn = total_gene_count - no_of_white_balls_in_urn
     return scipy.stats.hypergeom(
-            M=no_of_white_balls_in_urn + no_of_black_balls_in_urn, # total number of balls
-            n = no_of_white_balls_in_urn, #number of white balls
-            N = no_of_trials # no of balls drawn
-            ).sf(
-                    no_of_white_balls_drawn  #no of white balls drawn
-                    -1)
+        M=no_of_white_balls_in_urn + no_of_black_balls_in_urn,  # total number of balls
+        n=no_of_white_balls_in_urn,  # number of white balls
+        N=no_of_trials,  # no of balls drawn
+    ).sf(
+        no_of_white_balls_drawn - 1  # no of white balls drawn
+    )
 
 
-def multi_hypergeom_test(genome, query_set, function_gene_groups_or_list_of_such = None, background_set = None):
+def multi_hypergeom_test(
+    genome, query_set, function_gene_groups_or_list_of_such=None, background_set=None
+):
     """Test a query set against multiple sets from functional.databases.
     Returns a pandas.DataFrame(group, set, benjamini, p, overlap_count,
     sorted by benjamini
 
     """
     if function_gene_groups_or_list_of_such is None:
-            function_gene_groups_or_list_of_such = databases.get_default_groups()
+        function_gene_groups_or_list_of_such = databases.get_default_groups()
     query_set = set(query_set)
-    list_of_gene_groups = check_function_gene_groups_or_list_of_such(function_gene_groups_or_list_of_such)
+    list_of_gene_groups = check_function_gene_groups_or_list_of_such(
+        function_gene_groups_or_list_of_such
+    )
     sets_by_func_group = {}
     all_annotated_genes = set()
     for func_group in list_of_gene_groups:
@@ -196,23 +216,29 @@ def multi_hypergeom_test(genome, query_set, function_gene_groups_or_list_of_such
     else:
         background_set = all_annotated_genes
     query_set = query_set.intersection(background_set)
-    result = {'group': [], 'set': [], 'p': [], 'overlap count': [], 'intersection': []}
+    result = {"group": [], "set": [], "p": [], "overlap count": [], "intersection": []}
     for func_group_name in sets_by_func_group:
         for set_name, set_genes in sets_by_func_group[func_group_name].items():
             set_genes = set(set_genes)
-            result['group'].append(func_group_name)
-            result['set'].append(set_name)
+            result["group"].append(func_group_name)
+            result["set"].append(set_name)
             p = hypergeometric_test(query_set, set_genes, background_set)
             if p > 1:
                 raise ValueError("p > 1,. was %.15f" % p)
 
-            result['p'].append(p)
-            if result['p'][-1] == 0:
+            result["p"].append(p)
+            if result["p"][-1] == 0:
                 raise ValueError()
             intersection = query_set.intersection(set_genes)
-            result['overlap count'].append(len(intersection))
-            result['intersection'].append(", ".join(list(sorted([get_gene_name(genome, x) for x in intersection]))))
-    res =  pd.DataFrame(result, )
-    statistics.fdr_control_benjamini_hochberg(res, 'p', 'benjamini')
-    res = res[['group','set','benjamini', 'p','overlap count', 'intersection']].sort_values('benjamini')
+            result["overlap count"].append(len(intersection))
+            result["intersection"].append(
+                ", ".join(list(sorted([get_gene_name(genome, x) for x in intersection])))
+            )
+    res = pd.DataFrame(
+        result,
+    )
+    statistics.fdr_control_benjamini_hochberg(res, "p", "benjamini")
+    res = res[["group", "set", "benjamini", "p", "overlap count", "intersection"]].sort_values(
+        "benjamini"
+    )
     return res

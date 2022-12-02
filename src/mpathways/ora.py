@@ -5,8 +5,8 @@
 
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple, Any, Union
-from mbf_genomics.genes import Genes
-from mbf_genomes import EnsemblGenome
+from mbf.genomics.genes import Genes
+from mbf.genomes import EnsemblGenome
 from .databases import GMTCollection, interpret_collection
 from .util import fdr_control_benjamini_hochberg
 from datetime import datetime
@@ -158,8 +158,7 @@ class ORAHyper:
                 no_of_white_balls_drawn = len(drawn)
                 no_of_black_balls_in_urn = total_gene_count - no_of_white_balls_in_urn
                 p_value = scipy.stats.hypergeom(
-                    M=no_of_white_balls_in_urn
-                    + no_of_black_balls_in_urn,  # total number of balls
+                    M=no_of_white_balls_in_urn + no_of_black_balls_in_urn,  # total number of balls
                     n=no_of_white_balls_in_urn,  # number of white balls
                     N=no_of_trials,  # no of balls drawn
                 ).sf(no_of_white_balls_drawn - 1)
@@ -182,9 +181,7 @@ class ORAHyper:
             df = pd.DataFrame(result)
             fdr_control_benjamini_hochberg(df, "p-value", "Benjamini")
             partial_order = ["Set", "Group", "Benjamini", "Description"]
-            column_order = partial_order + [
-                x for x in df.columns if x not in partial_order
-            ]
+            column_order = partial_order + [x for x in df.columns if x not in partial_order]
             df = df[column_order]
             df = df.sort_values("Benjamini", ascending=True)
             df = df[df["Observed overlap"] > 0]
@@ -235,9 +232,7 @@ class ORAHyper:
             if len(df):
                 df["corr p_value"] = -1 * np.log10(df["Benjamini"].values)
                 df = df.sort_values("corr p_value", ascending=True)
-                df["Set"] = pd.Categorical(
-                    df["Set"].values, list(set(df["Set"].values))
-                )
+                df["Set"] = pd.Categorical(df["Set"].values, list(set(df["Set"].values)))
                 y = range(len(df))
                 plt.barh(
                     y,
@@ -246,9 +241,7 @@ class ORAHyper:
                     tick_label=df["Set"].values,
                 )
                 lims = plt.ylim()
-                plt.gca().axvline(
-                    [-1 * math.log(0.05, 10)], ymin=lims[0], ymax=lims[1], color="k"
-                )
+                plt.gca().axvline([-1 * math.log(0.05, 10)], ymin=lims[0], ymax=lims[1], color="k")
                 plt.xlabel(r"$-log_{10}$ (corrected p-value)")
                 plt.ylabel("enriched gene sets")
                 plt.title(title)
@@ -264,4 +257,3 @@ class ORAHyper:
             calc_args=[topx],
             plot_args=sorted(list(kwargs.items())),
         ).depends_on(dependencies)
-

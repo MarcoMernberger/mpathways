@@ -5,11 +5,11 @@
 
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple, Any, Union
-from mbf_externals.util import download_file
-from mbf_genomics.genes import Genes
-from mbf_genomes import EnsemblGenome
+from mbf.externals.util import download_file
+from mbf.genomics.genes import Genes
+from mbf.genomes import EnsemblGenome
 from pypipegraph import FileGeneratingJob, Job
-from mbf_genomics.annotator import Annotator
+from mbf.genomics.annotator import Annotator
 from .util import write_cls, write_gct
 from pandas import DataFrame
 from abc import abstractmethod
@@ -62,10 +62,9 @@ class GMTCollection:  # ExternalDataBase
 
         return ppg.FileGeneratingJob(outfile, __dump).depends_on(self.write())
 
+
 class GMTCollectionFromList(GMTCollection):  # ExternalDataBase
-    def __init__(
-        self, collections: List[GMTCollection], genome: EnsemblGenome, name: str = None
-    ):
+    def __init__(self, collections: List[GMTCollection], genome: EnsemblGenome, name: str = None):
         if name is None:
             name = "_".join([x.name for x in collections])
         super().__init__(name, genome)
@@ -111,9 +110,7 @@ class MSigDBCollection(GMTCollection):
         self.collection_name = name
         self.input_file = self.cache_dir / (self.name + ".gmt")
         self.dependencies = [
-            ppg.ParameterInvariant(
-                self.name, [self.collection_name, self.version, self.subset]
-            )
+            ppg.ParameterInvariant(self.name, [self.collection_name, self.version, self.subset])
         ]
 
     def get_set_from_url(self):
@@ -134,16 +131,16 @@ class IPACollection(GMTCollection):
         if self.name == "ipa":
             self.url = "https://github.com/MarcoMernberger/ipa/raw/master/Functional%20Annotation%20IPA.txt"
         elif self.name == "ipa_reg":
-            self.url = "https://github.com/MarcoMernberger/ipa/raw/master/Regulator%20List%20IPA.txt"
+            self.url = (
+                "https://github.com/MarcoMernberger/ipa/raw/master/Regulator%20List%20IPA.txt"
+            )
         else:
             raise ValueError(f"Cannot interpret name {name}.")
         self.cache_dir = Path("cache") / "gmt" / self.name / genome.species
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.input_file = self.cache_dir / f"{self.name}.txt"
         self.dependencies = [
-            ppg.ParameterInvariant(
-                self.name, [self.name, str(self.input_file)]
-            ),
+            ppg.ParameterInvariant(self.name, [self.name, str(self.input_file)]),
             self.load(),
         ]
 
@@ -167,16 +164,27 @@ class IPACollection(GMTCollection):
 
     def __format_ipa(self, line):
         splits = line.split("\t")
-        genes = '\t'.join(splits[1].split(', '))
-        return "\t".join([f"{splits[0]}", f"{self.name.upper()},{','.join([splits[2], splits[3], splits[4]])}", f"{genes}"])
-    
+        genes = "\t".join(splits[1].split(", "))
+        return "\t".join(
+            [
+                f"{splits[0]}",
+                f"{self.name.upper()},{','.join([splits[2], splits[3], splits[4]])}",
+                f"{genes}",
+            ]
+        )
+
     def __format_ipa_reg(self, line):
         splits = line.split("\t")
-        genes = '\t'.join(splits[2].split(', '))
-        return "\t".join([f"{splits[0]},{splits[1]}", f"{self.name.upper()},{','.join([splits[3], splits[4], splits[5]])}", f"{genes}"])
-    
-    def write(self) -> FileGeneratingJob:
+        genes = "\t".join(splits[2].split(", "))
+        return "\t".join(
+            [
+                f"{splits[0]},{splits[1]}",
+                f"{self.name.upper()},{','.join([splits[3], splits[4], splits[5]])}",
+                f"{genes}",
+            ]
+        )
 
+    def write(self) -> FileGeneratingJob:
         def __dump():
             if self.name == "ipa":
                 __format = self.__format_ipa
@@ -239,9 +247,7 @@ class MSigChipEnsembl:
         self.cache_dir = Path("cache") / "chip" / self.name
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._chip = self.cache_dir / "input.chip"
-        self.dependencies = [
-            ppg.ParameterInvariant(self.name, [self.species, self.version])
-        ]
+        self.dependencies = [ppg.ParameterInvariant(self.name, [self.species, self.version])]
 
     @property
     def filename(self):
@@ -272,17 +278,13 @@ class MSigChipEnsembl:
 
 
 class CLSWriter:
-    def __init__(
-        self, phenotypes: Tuple[str, str], columns_a_b: Tuple[List[str], List[str]]
-    ):
+    def __init__(self, phenotypes: Tuple[str, str], columns_a_b: Tuple[List[str], List[str]]):
         self.name = f"Cls_{phenotypes[0]}_vs_{phenotypes[1]}"
         self.cache_dir = Path("cache") / "cls" / self.name
         self.columns_a_b = columns_a_b
         self.phenotypes = phenotypes
         self.dependencies = [
-            ppg.ParameterInvariant(
-                self.name, list(phenotypes) + columns_a_b[0] + columns_a_b[1]
-            )
+            ppg.ParameterInvariant(self.name, list(phenotypes) + columns_a_b[0] + columns_a_b[1])
         ]
         self._cls = self.cache_dir / "input.cls"
 
@@ -291,9 +293,7 @@ class CLSWriter:
         return self._cls.absolute()
 
     def write(self):
-        return write_cls(
-            self.cache_dir, self.phenotypes, self.columns_a_b, self.dependencies
-        )
+        return write_cls(self.cache_dir, self.phenotypes, self.columns_a_b, self.dependencies)
 
 
 class GCTWriter:
@@ -307,9 +307,7 @@ class GCTWriter:
     ):
         self.dependencies = dependencies
         if isinstance(genes_or_dataframe, Genes):
-            self.name = (
-                f"Gct_{genes_or_dataframe.name}_{phenotypes[0]}_vs_{phenotypes[1]}"
-            )
+            self.name = f"Gct_{genes_or_dataframe.name}_{phenotypes[0]}_vs_{phenotypes[1]}"
             self.dependencies.append(genes_or_dataframe.load())
         else:
             self.name = f"{name}_{phenotypes[0]}_vs_{phenotypes[1]}"
@@ -353,7 +351,12 @@ def generate_collection(name: str, genome: EnsemblGenome) -> GMTCollection:
         if "." in name:
             splits = name.split(".")
             if name[-1].isdigit():
-                return MSigDBCollection(splits[0], genome, version=".".join([splits[-2][1:], splits[-1]]), subset=".".join(splits[1:-2]))
+                return MSigDBCollection(
+                    splits[0],
+                    genome,
+                    version=".".join([splits[-2][1:], splits[-1]]),
+                    subset=".".join(splits[1:-2]),
+                )
             else:
                 return MSigDBCollection(splits[0], genome, subset=".".join(splits[1]))
         else:
@@ -365,9 +368,8 @@ def generate_collection(name: str, genome: EnsemblGenome) -> GMTCollection:
 
 
 def interpret_collection(
-    collection: Union[GMTCollection, List[GMTCollection], str, List[str]],
-    genome: EnsemblGenome
-    ) -> GMTCollection:
+    collection: Union[GMTCollection, List[GMTCollection], str, List[str]], genome: EnsemblGenome
+) -> GMTCollection:
     """
     Turns a list of strings, GMTCollections or a single string into a single
     GMTCollection on which all subsequent methods can work.
@@ -396,10 +398,9 @@ def interpret_collection(
             collection = GMTCollectionFromList(collection, genome)
         elif isinstance(collection[0], str):
             collection = GMTCollectionFromList(
-                [generate_collection(x, genome) for x in collection], genome,
+                [generate_collection(x, genome) for x in collection],
+                genome,
             )
         else:
-            raise ValueError(
-                f"Don't know how to interpret this collection: {collection}."
-            )
+            raise ValueError(f"Don't know how to interpret this collection: {collection}.")
     return collection
