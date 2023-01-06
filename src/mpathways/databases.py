@@ -14,8 +14,9 @@ from .util import write_cls, write_gct
 from pandas import DataFrame
 from abc import abstractmethod
 import pandas as pd
-import pypipegraph as ppg
+import pypipegraph2 as ppg2
 import subprocess
+
 
 __author__ = "Marco Mernberger"
 __copyright__ = "Copyright (c) 2020 Marco Mernberger"
@@ -32,13 +33,18 @@ class GMTCollection:  # ExternalDataBase
         self._gmt = self.cache_dir / "input.gmt"
         self.dependencies: List[Job] = []
 
+    def __str__(self):
+        return f"{self.name} {self.species}"
+
+    def __repr__(self):
+        return f"{self.name} {self.species}"
+
     @property
     def filename(self):
         return self._gmt.absolute()
 
     @abstractmethod
     def write(self):
-        # generate a GSEA usable input.gmt in a central location
         pass
 
     @property
@@ -47,20 +53,30 @@ class GMTCollection:  # ExternalDataBase
 
     def write_ensembl(self):
         outfile = self.ensembl_gmt
+        gmt_file = self._gmt
+        genome = self.genome
 
-        def __dump():
-            with self._gmt.open("r") as inp:
+        def __dump(outfile):
+            with gmt_file.open("r") as inp:
                 with outfile.open("w") as outp:
                     for line in inp.readlines():
                         splits = line[:-1].split("\t")
                         outp.write(f"{splits[0]}\t{splits[1]}")
                         for gene_name in splits[2:]:
-                            stable_ids = list(self.genome.name_to_gene_ids(gene_name))
+                            stable_ids = list(genome.name_to_gene_ids(gene_name))
                             stable = "\t".join(stable_ids)
                             outp.write(f"\t{stable}")
                         outp.write("\n")
 
-        return ppg.FileGeneratingJob(outfile, __dump).depends_on(self.write())
+        return (
+            ppg2.FileGeneratingJob(outfile, __dump)
+            .depends_on(self.genome.download_genome())
+            .depends_on(self.write())
+            .depends_on(self.dependencies)  #
+        )
+
+    def get_depenbdencies(self) -> List[Job]:
+        return self.dependencies
 
 
 class GMTCollectionFromList(GMTCollection):  # ExternalDataBase
@@ -74,13 +90,16 @@ class GMTCollectionFromList(GMTCollection):  # ExternalDataBase
             self.dependencies.append(col.write())
 
     def write(self):
-        def __dump():
-            with self._gmt.open("w") as outp:
-                for collection in self.collections:
-                    cmd = ["cat", f"{collection.filename}"]
+        gmt = self._gmt
+        filenames = [str(collection.filename) for collection in self.collections]
+
+        def __dump(gmt):
+            with gmt.open("w") as outp:
+                for filename in filenames:
+                    cmd = ["cat", f"{filename}"]
                     subprocess.check_call(cmd, stdout=outp)
 
-        return ppg.FileGeneratingJob(self._gmt, __dump).depends_on(self.dependencies)
+        return ppg2.FileGeneratingJob(gmt, __dump).depends_on(self.dependencies)
 
 
 class MSigDBCollection(GMTCollection):
@@ -110,15 +129,15 @@ class MSigDBCollection(GMTCollection):
         self.collection_name = name
         self.input_file = self.cache_dir / (self.name + ".gmt")
         self.dependencies = [
-            ppg.ParameterInvariant(self.name, [self.collection_name, self.version, self.subset])
+            ppg2.ParameterInvariant(self.name, [self.collection_name, self.version, self.subset])
         ]
 
-    def get_set_from_url(self):
+    def get_set_from_url(self, *_):
         url = f"https://data.broadinstitute.org/gsea-msigdb/msigdb/release/{self.version}/{self.name}.symbols.gmt"
         download_file(url, self._gmt.open("wb"))
 
     def write(self):
-        return ppg.FileGeneratingJob(self._gmt, self.get_set_from_url)
+        return ppg2.FileGeneratingJob(self._gmt, self.get_set_from_url)
 
 
 class IPACollection(GMTCollection):
@@ -140,9 +159,13 @@ class IPACollection(GMTCollection):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.input_file = self.cache_dir / f"{self.name}.txt"
         self.dependencies = [
-            ppg.ParameterInvariant(self.name, [self.name, str(self.input_file)]),
+            ppg2.ParameterInvariant(self.name, [self.name, str(self.input_file)]),
             self.load(),
         ]
+        if self.name == "ipa":
+            self.format_function = self.__format_ipa
+        else:
+            self.format_function = self.__format_ipa_reg
 
     def load(self) -> FileGeneratingJob:
         """
@@ -157,47 +180,51 @@ class IPACollection(GMTCollection):
             The job that creates the file.
         """
 
-        def __dump():
-            download_file(self.url, self.input_file.open("wb"))
+        url = self.url
 
-        return ppg.FileGeneratingJob(self.input_file, __dump).depends_on(self.dependencies)
+        def __dump(input_file):
+            download_file(url, input_file.open("wb"))
 
-    def __format_ipa(self, line):
+        return ppg2.FileGeneratingJob(self.input_file, __dump).depends_on(self.dependencies)
+
+    @staticmethod
+    def __format_ipa(line, name):
         splits = line.split("\t")
         genes = "\t".join(splits[1].split(", "))
         return "\t".join(
             [
                 f"{splits[0]}",
-                f"{self.name.upper()},{','.join([splits[2], splits[3], splits[4]])}",
+                f"{name},{','.join([splits[2], splits[3], splits[4]])}",
                 f"{genes}",
             ]
         )
 
-    def __format_ipa_reg(self, line):
+    @staticmethod
+    def __format_ipa_reg(line, name):
         splits = line.split("\t")
         genes = "\t".join(splits[2].split(", "))
         return "\t".join(
             [
                 f"{splits[0]},{splits[1]}",
-                f"{self.name.upper()},{','.join([splits[3], splits[4], splits[5]])}",
+                f"{name},{','.join([splits[3], splits[4], splits[5]])}",
                 f"{genes}",
             ]
         )
 
     def write(self) -> FileGeneratingJob:
-        def __dump():
-            if self.name == "ipa":
-                __format = self.__format_ipa
-            else:
-                __format = self.__format_ipa_reg
-            with self._gmt.open("w") as out:
-                with self.input_file.open("r") as imp:
+        input_file = self.input_file
+        format_fnc = self.format_function
+        name = self.name.upper()
+
+        def __dump(gmt):
+            with gmt.open("w") as out:
+                with input_file.open("r") as imp:
                     for line in imp.readlines()[1:]:
-                        o = __format(line[:-1])
+                        o = format_fnc(line[:-1], name)
                         out.write(o)
                         out.write("\n")
 
-        return ppg.FileGeneratingJob(self._gmt, __dump).depends_on(self.dependencies)
+        return ppg2.FileGeneratingJob(self._gmt, __dump).depends_on(self.dependencies)
 
 
 class MSigChipEnsembl:
@@ -247,7 +274,7 @@ class MSigChipEnsembl:
         self.cache_dir = Path("cache") / "chip" / self.name
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._chip = self.cache_dir / "input.chip"
-        self.dependencies = [ppg.ParameterInvariant(self.name, [self.species, self.version])]
+        self.dependencies = [ppg2.ParameterInvariant(self.name, [self.species, self.version])]
 
     @property
     def filename(self):
@@ -270,11 +297,12 @@ class MSigChipEnsembl:
             The job that creates the file.
         """
         outfile = self._chip
+        url = self.url
 
-        def __dump():
-            download_file(self.url, outfile.open("wb"))
+        def __dump(outfile):
+            download_file(url, outfile.open("wb"))
 
-        return ppg.FileGeneratingJob(outfile, __dump).depends_on(self.dependencies)
+        return ppg2.FileGeneratingJob(outfile, __dump).depends_on(self.dependencies)
 
 
 class CLSWriter:
@@ -284,7 +312,7 @@ class CLSWriter:
         self.columns_a_b = columns_a_b
         self.phenotypes = phenotypes
         self.dependencies = [
-            ppg.ParameterInvariant(self.name, list(phenotypes) + columns_a_b[0] + columns_a_b[1])
+            ppg2.ParameterInvariant(self.name, list(phenotypes) + columns_a_b[0] + columns_a_b[1])
         ]
         self._cls = self.cache_dir / "input.cls"
 
@@ -316,7 +344,7 @@ class GCTWriter:
         self.phenotypes = phenotypes
         self.genes_or_dataframe = genes_or_dataframe
         self.dependencies.append(
-            ppg.ParameterInvariant(
+            ppg2.ParameterInvariant(
                 self.name,
                 list(phenotypes) + columns_a_b[0] + columns_a_b[1] + [self.name],
             )

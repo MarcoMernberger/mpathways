@@ -4,7 +4,7 @@
 """gsea.py: Contains wrapper for Gene Set Enrichment Analysis."""
 
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any, Union
+from typing import Optional, List, Dict, Tuple, Any, Union, Callable
 from mbf.externals.util import download_zip_and_turn_into_tar_gzip, download_file
 from mbf.genomics.genes import Genes
 from mbf.genomics.annotator import Annotator
@@ -18,11 +18,12 @@ from .databases import (
     interpret_collection,
 )
 from datetime import datetime
-from pypipegraph import Job
+from pypipegraph2 import Job
 from bs4 import BeautifulSoup
-import pypipegraph as ppg
+import pypipegraph2 as ppg2
 import warnings
 import os
+import subprocess
 
 __author__ = "Marco Mernberger"
 __copyright__ = "Copyright (c) 2020 Marco Mernberger"
@@ -33,13 +34,8 @@ global_instances: Dict[str, Any] = {}
 
 
 class GSEA:
-    def __init__(
-        self,
-        version: str = "4.0.3",
-        **kwargs,
-    ):
+    def __init__(self):
         self.memory_in_mb = 16 * 1024
-        self.version = version
         self.collapse_values = ["No_Collapse", "Collapse", "Remap_Only"]
         self.collapse_modes = [
             "Max_probe",
@@ -60,42 +56,42 @@ class GSEA:
             "Pearson",
         ]
 
-    @property
-    def java_path(self):
-        path = list((self.path / f"GSEA_Linux_{self.version}").glob("jdk*"))[0] / "bin"
-        return path
+    # @property
+    # def java_path(self):
+    #     path = list((self.path / f"GSEA_Linux_{self.version}").glob("jdk*"))[0] / "bin"
+    #     return path
 
-    def unpacked_path(self):
-        return self.store.get_unpacked_path("GSEA", self.version)
+    # def unpacked_path(self):
+    #     return self.store.get_unpacked_path("GSEA", self.version)
 
-    def unpack(self):
-        self.store.unpack_version(self.name, self.version)
-        self.__chmod_java()
+    # def unpack(self):
+    #     self.store.unpack_version(self.name, self.version)
+    #     self.__chmod_java()
 
-    def __chmod_java(self):
-        for filename in self.java_path.iterdir():
-            os.chmod(filename, 111)
+    # def __chmod_java(self):
+    #     for filename in self.java_path.iterdir():
+    #         os.chmod(filename, 111)
 
-    def fetch_version(self, version: str, target_filename: Path) -> None:
-        """
-        Takes care of the tool download.
+    # def fetch_version(self, version: str, target_filename: Path) -> None:
+    #     """
+    #     Takes care of the tool download.
 
-        Overrides the ExternalAlgorithm methood. Downloads the external method
-        to the prebuild location specified by the corresponding
-        ExternalAlgorithmStore and packs it into a tar.gz file.
+    #     Overrides the ExternalAlgorithm methood. Downloads the external method
+    #     to the prebuild location specified by the corresponding
+    #     ExternalAlgorithmStore and packs it into a tar.gz file.
 
-        Parameters
-        ----------
-        version : str
-            The tool version to be used.
-        target_filename : Path
-            The path to the local tar.gz file.
-        """
-        major = version[: version.rfind(".")]
-        url = f"https://data.broadinstitute.org/gsea-msigdb/gsea/software/desktop/{major}/GSEA_Linux_{version}.zip"
-        download_zip_and_turn_into_tar_gzip(
-            url, target_filename, chmod_x_files=[f"GSEA_Linux_{version}/gsea-cli.sh"]
-        )
+    #     Parameters
+    #     ----------
+    #     version : str
+    #         The tool version to be used.
+    #     target_filename : Path
+    #         The path to the local tar.gz file.
+    #     """
+    #     major = version[: version.rfind(".")]
+    #     url = f"https://data.broadinstitute.org/gsea-msigdb/gsea/software/desktop/{major}/GSEA_Linux_{version}.zip"
+    #     download_zip_and_turn_into_tar_gzip(
+    #         url, target_filename, chmod_x_files=[f"GSEA_Linux_{version}/gsea-cli.sh"]
+    #     )
 
     @property
     def name(self) -> str:
@@ -109,10 +105,8 @@ class GSEA:
         """
         return "GSEA"
 
-    def build_cmd(
+    def gsea_cmd(
         self,
-        output_directory: Optional[Path],
-        ncores: int,
         arguments: Union[None, List[str]],
     ):
         """
@@ -139,7 +133,6 @@ class GSEA:
         if arguments is None:
             arguments = []
         return [
-            # f"{self.path}/GSEA_Linux_{self.version}/gsea-cli.sh",
             "gsea-cli.sh",
             "GSEA",
         ] + arguments
@@ -162,6 +155,7 @@ class GSEA:
             "top_x",
             "result_dir",
             "permutation_type",
+            "median",
         ]
         warnings.simplefilter("default", UserWarning)
         for key in kwargs:
@@ -218,6 +212,7 @@ class GSEA:
         descending = "descending" if kwargs.get("descending", True) else "ascending"
         sorting = "real" if not kwargs.get("absolute_sorting", False) else "abs"
         topx = kwargs.get("top_x", 200)
+        median = kwargs.get("median", False)
         arguments = [
             "-res",
             str(gct.filename),  # this needs to come from genes
@@ -240,7 +235,7 @@ class GSEA:
             "-norm",
             norm,
             "-nperm",
-            permutations,
+            str(permutations),
             "-permute",
             perm_type,
             "-rnd_type",
@@ -264,11 +259,11 @@ class GSEA:
             "-make_sets",
             "true",
             "-median",
-            "false",
+            str(median).lower(),
             "-num",
             "100",
             "-plot_top_x",
-            topx,
+            str(topx),
             "-rnd_seed",
             "timestamp",
             "-save_rnd_lists",
@@ -349,211 +344,40 @@ class GSEA:
         result_dir.mkdir(parents=True, exist_ok=True)
         now = datetime.now()
         rpt_label = now.strftime("%Y%m%d%H%M")
-        index_html = result_dir / "index.html"
+        index_html = (result_dir / "index.html").relative_to("/project")
         arguments = self.check_arguments(
             collection, gct, chip, clss, result_dir, rpt_label, **kwargs
         )
-        job = self.run(
-            str(result_dir),
+        job = self.run_job(
             arguments,
-            cwd=result_dir,
+            result_dir,
             call_afterwards=self.__clean_date_folder(result_dir, now, rpt_label),
-            additional_files_created=[index_html],
+            # additional_files_created=[index_html],
         )
         job.depends_on(chip.write())
         job.depends_on(collection.write())
         job.depends_on(clss.write())
         job.depends_on(gct.write())
-        return job, Path(job.filenames[1])
+        return job, index_html
 
+    def run_job(self, arguments: List[str], result_dir: Path, call_afterwards: Callable):
+        outfile = result_dir / "index.html"
+        cmd = self.gsea_cmd(arguments)
+        sentinel = result_dir / "sentinel.txt"
+        sentinel = sentinel.relative_to("/project")
 
-'''
+        def __call(sentinel: Path):
+            try:
+                with sentinel.open("w") as outp:
+                    subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    call_afterwards()
+                    outp.write("GSEA command:\n" + " ".join(cmd))
+
+            except subprocess.CalledProcessError:
+                print(" ".join(cmd))
+                raise
+
+        return ppg2.FileGeneratingJob(sentinel, __call)
+
     def __repr__(self) -> str:
-        return f"GSEA({self.tool}, {self.options})"
-
-    def __str__(self) -> str:
-        return f"GATK(tool = {self.tool}, options = {self.options})"
-
-    def run(self) -> Callable:
-        """
-        Returns a callable that will run the pathway analysis.
-
-        Returns
-        -------
-        Callable
-            A callable that runs the actual analysis.
-        """
-
-        def call(
-            input_files: List[List[AlignedSample]], output_file: Path, *args, **kwargs
-        ):
-            cmd_call = [self.caller_type]
-            cmd_call.extend([str(posixpath) for posixpath in input_files])
-            cmd_call.append(str(output_file))
-            if self.caller_type == "somatic" or self.caller_type == "copynumber":
-                if len(input_files) != 2:
-                    raise ValueError(
-                        f"Selected analysis {self.caller_type} needs a list of matched pileup files, got {input_files, type(input_files)}"
-                    )
-                cmd_call.extend(
-                    [
-                        "--output-snp",
-                        str(output_file.parent / (output_file.stem + ".snp")),
-                    ]
-                )
-                cmd_call.extend(
-                    [
-                        "--output-indel",
-                        str(output_file.parent / (output_file.stem + ".indel")),
-                    ]
-                )
-            cmd_call.extend(self.optionhandler.options_as_list_str(self.options))
-            cmd_call = self.build_cmd(
-                output_directory=output_file.parent,
-                ncores=self.get_cores_needed(),
-                arguments=cmd_call,
-            )
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            with Path(str(output_file) + ".varscan.log").open(
-                "w"
-            ) as stderr, output_file.open("w") as outp:
-                stderr.write(" ".join(cmd_call) + "\n")
-                try:
-                    p2 = subprocess.Popen(cmd_call, stdout=outp, stderr=stderr)
-                    p2.communicate()
-                except subprocess.CalledProcessError:
-                    print(f"Call failed : {' '.join(cmd_call)}")
-                    raise
-            if self.caller_type in ["somatic"]:
-                with Path(output_file).open("w") as outp:
-                    outp.write(
-                        f'Results in \n{str(output_file.parent / (output_file.stem + ".snp"))}\n{str(output_file.parent / (output_file.stem + ".indel"))}'
-                    )
-
-        if self.preprocessor is not None:
-            modifier = self.preprocessor.run_modifier()
-            call = modifier(call)
-        return call
-
-
-
-            handle = open(sentinel_path, "wb")
-            handle.write(" ".join(gsea_call).encode())
-            print(" ".join(gsea_call))
-            proc = subprocess.Popen(
-                gsea_call,
-                stdout=handle,
-                stderr=subprocess.PIPE,
-                shell=False,
-                cwd=str(self.output_path),
-            )
-            stdout, stderr = proc.communicate()
-            if proc.returncode != 0:
-                print(stdout)
-                print("stderr")
-                print(stderr)
-
-                raise ValueError(
-                    "GSEA CALCULATION returncode != 0: %i\n%s\n%s"
-                    % (proc.returncode, stdout, stderr)
-                )
-
-            handle.write(b"DONE")
-            handle.close()
-
-        job = (
-            ppg.FileGeneratingJob(sentinel_path, call)
-            .depends_on(self.dump_files())
-            .depends_on(
-                ppg.ParameterInvariant(
-                    sentinel_path,
-                    (
-                        self.get_version(),
-                        self.metric,
-                        self.n_permutation,
-                        self.do_collapse,
-                        self.permute,
-                    ),
-                )
-            )
-        )
-        job.cores_needed = 8
-        return job
-
-
-
-    def print_help(self) -> None:
-        """
-        Prints a help string for the external method.
-
-        Calls the OptionHandler function to print a help string of the
-        corresponding OPtionHandler object.
-        """
-        self.optionhandler.print_help()
-
-    def print_tools(self) -> None:
-        """
-        Prints a list of accepted GATK tools.
-
-        Calls the GATK tool to get a list of accepted tool commands and prints 
-        them.
-        
-        [extended_summary]
-        """
-        self.run_command(["--list"])
-
-    @property
-    def multi_core(self) -> bool:
-        """
-        Returns True if the GATK call can use multiple cores.
-
-        Overrides the ExternalAlgorithm method.
-        """
-        return "-nct" in self.options or "-nt" in self.options
-
-    def build_cmd(
-        self, output_directory: Optional[Path], ncores: int, arguments: List[str]
-    ):
-        """
-        Returns a command as a list of strings to be passed to subprocess.
-
-        Constructs an executable command to be passed to subprocess from the
-        output directory, the number of cores to be used and a list of command
-        options. Overrides the ExternalAlgorithm method and ignores the output
-        directory and ncores parameters. Both are handled by the option list.
-
-        Parameters
-        ----------
-        output_directory : Optional[Path]
-            Path of output directory.
-        ncores : int
-            Number of cores to be used.
-        arguments : List[str]
-            List of string arguments for the command call.
-
-        Returns
-        -------
-        List[str]
-            Command to subprocess as a list of strings.
-        """
-        if self.tool is None:
-            return [str(self.path / self.command[0])] + arguments
-        return [str(self.path / self.command[0]), self.tool] + arguments
-
-    def get_cores_needed(self) -> int:
-        """
-        Returns the number of cores the GATK call will need.
-
-        Overrides the ExternalAlgorithm abstract method.
-
-        Returns
-        -------
-        int
-            [description]
-        """
-        if "-nt" in self.options:
-            return self.options["-nct"]
-        elif "-nct" in self.options:
-            return self.options["-nct"]
-        return 1
-'''
+        return f"GSEA({self.version})"

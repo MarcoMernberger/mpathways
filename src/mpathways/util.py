@@ -9,7 +9,7 @@ from pypipegraph import Job, FileGeneratingJob
 from mbf.genomics.genes import Genes
 from pandas import DataFrame
 import pandas as pd
-import pypipegraph as ppg
+import pypipegraph2 as ppg2
 import mbf.genomics
 import scipy
 import numpy as np
@@ -49,7 +49,7 @@ def write_cls(
     output_directory.mkdir(parents=True, exist_ok=True)
     outfile = output_directory / "input.cls"
 
-    def __dump():
+    def __dump(outfile):
         with outfile.open("w") as handle:
             handle.write(f"{(len(columns_a_b[0]) + len(columns_a_b[1]))} 2 1\n")
             handle.write(f"# {phenotypes[0]} {phenotypes[1]}\n")
@@ -59,7 +59,7 @@ def write_cls(
             handle.write("\n")
             handle.close()
 
-    return ppg.FileGeneratingJob(outfile, __dump).depends_on(dependencies)
+    return ppg2.FileGeneratingJob(outfile, __dump).depends_on(dependencies)
 
 
 def write_gct(
@@ -96,7 +96,7 @@ def write_gct(
             genes_or_dataframe.add_annotator(mbf.genomics.genes.annotators.Description())
         )
 
-    def __dump():
+    def __dump(outfile):
         df = genes_or_dataframe
         if isinstance(genes_or_dataframe, Genes):
             df = genes_or_dataframe.df.copy()
@@ -120,7 +120,7 @@ def write_gct(
             for _, row in df.iterrows():
                 handle.write("\t".join([str(x) for x in row]) + "\n")
 
-    return ppg.FileGeneratingJob(outfile, __dump).depends_on(dependencies)
+    return ppg2.FileGeneratingJob(outfile, __dump).depends_on(dependencies)
 
 
 def _benjamini_hochberg(col):

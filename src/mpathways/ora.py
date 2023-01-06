@@ -10,12 +10,12 @@ from mbf.genomes import EnsemblGenome
 from .databases import GMTCollection, interpret_collection
 from .util import fdr_control_benjamini_hochberg
 from datetime import datetime
-from pypipegraph import Job, FileGeneratingJob, CachedAttributeLoadingJob
+from pypipegraph2 import Job, FileGeneratingJob, CachedAttributeLoadingJob
 from mplots import MPPlotJob
 import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
-import pypipegraph as ppg
+import pypipegraph2 as ppg2
 import scipy
 import numpy as np
 import math
@@ -60,12 +60,12 @@ class ORAHyper:
         self.collection = interpret_collection(collection, genome)
         self.background_genes = background_genes
         self.all_sets = set()
+        self.cache_dir = Path("cache") / "HE" / self.name
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.dependencies = [
             self.collection.write_ensembl(),
             self.background_genes.load(),
         ]
-        self.cache_dir = Path("cache") / "HE" / self.name
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def trim_sets(self) -> CachedAttributeLoadingJob:
         """
@@ -96,9 +96,11 @@ class ORAHyper:
                     desc[splits[0]] = splits[1]
             return (sets, allinset, desc)
 
-        return ppg.CachedAttributeLoadingJob(
+        cached_tuple = ppg2.CachedAttributeLoadingJob(
             self.cache_dir / "sets", self, "sets_allinset_desc", calc
-        ).depends_on(self.dependencies)
+        )
+        cached_tuple.calc.depends_on(self.dependencies)
+        return cached_tuple
 
     def run(self, genes: Genes, **kwargs) -> FileGeneratingJob:
         """
@@ -120,7 +122,7 @@ class ORAHyper:
         outdir.mkdir(parents=True, exist_ok=True)
         outfile = outdir / f"{genes.name}_{self.name}.tsv"
 
-        def __run():
+        def __run(outfile: Path):
             def get_gene_name(x):
                 try:
                     return genes.genome.genes[x].name
@@ -187,9 +189,11 @@ class ORAHyper:
             df = df[df["Observed overlap"] > 0]
             df.to_csv(str(outfile), sep="\t", index=False)
 
+        trimtuple = self.trim_sets()
         return (
-            ppg.FileGeneratingJob(outfile, __run)
-            .depends_on(self.trim_sets())
+            ppg2.FileGeneratingJob(outfile, __run)
+            .depends_on(trimtuple.load)
+            .depends_on(trimtuple.calc)
             .depends_on(self.dependencies)
             .depends_on(genes.load())
         )
@@ -256,4 +260,5 @@ class ORAHyper:
             plot,
             calc_args=[topx],
             plot_args=sorted(list(kwargs.items())),
-        ).depends_on(dependencies)
+            dependencies=dependencies,
+        )
