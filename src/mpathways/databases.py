@@ -306,8 +306,10 @@ class MSigChipEnsembl:
 
 
 class CLSWriter:
-    def __init__(self, phenotypes: Tuple[str, str], columns_a_b: Tuple[List[str], List[str]]):
-        self.name = f"Cls_{phenotypes[0]}_vs_{phenotypes[1]}"
+    def __init__(
+        self, name: str, phenotypes: Tuple[str, str], columns_a_b: Tuple[List[str], List[str]]
+    ):
+        self.name = name
         self.cache_dir = Path("cache") / "cls" / self.name
         self.columns_a_b = columns_a_b
         self.phenotypes = phenotypes
@@ -327,6 +329,7 @@ class CLSWriter:
 class GCTWriter:
     def __init__(
         self,
+        comparison_name: str,
         genes_or_dataframe: Union[Genes, DataFrame],
         phenotypes: Tuple[str, str],
         columns_a_b: Tuple[List[str], List[str]],
@@ -335,7 +338,7 @@ class GCTWriter:
     ):
         self.dependencies = dependencies
         if isinstance(genes_or_dataframe, Genes):
-            self.name = f"Gct_{genes_or_dataframe.name}_{phenotypes[0]}_vs_{phenotypes[1]}"
+            self.name = f"Gct_{comparison_name}_{phenotypes[0]}_vs_{phenotypes[1]}"
             self.dependencies.append(genes_or_dataframe.load())
         else:
             self.name = f"{name}_{phenotypes[0]}_vs_{phenotypes[1]}"

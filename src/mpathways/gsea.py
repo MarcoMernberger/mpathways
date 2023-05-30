@@ -275,15 +275,18 @@ class GSEA:
 
     def get_file_writer(
         self,
+        comparison_name: str,
         genes: Genes,
         phenotypes: Tuple[str, str],
         columns_a_b: Tuple[List[str], List[str]],
         chip: Union[MSigChipEnsembl, None],
         dependencies: List[Job],
     ):
-        cls_writer = CLSWriter(phenotypes, columns_a_b)
+        cls_writer = CLSWriter(comparison_name, phenotypes, columns_a_b)
         gct_name = f"Gct_{genes.name}_{phenotypes[0]}_vs_{phenotypes[1]}"
-        gct_writer = GCTWriter(genes, phenotypes, columns_a_b, gct_name, dependencies)
+        gct_writer = GCTWriter(
+            comparison_name, genes, phenotypes, columns_a_b, gct_name, dependencies
+        )
         return cls_writer, gct_writer
 
     def __clean_date_folder(self, outdir, now, rpt_label):
@@ -318,6 +321,7 @@ class GSEA:
     def run_on_counts(
         self,
         genes: Genes,
+        comparison_name: str,
         phenotypes: Tuple[str, str],
         columns_a_b: Tuple[List[str], List[str]],
         collection: Union[GMTCollection, List[GMTCollection], str, List[str]],
@@ -331,14 +335,13 @@ class GSEA:
             chip = MSigChipEnsembl(genome.species, "7.1")
         for anno in annotators:
             dependencies.append(genes.add_annotator(anno))
-        clss, gct = self.get_file_writer(genes, phenotypes, columns_a_b, chip, dependencies)
+        clss, gct = self.get_file_writer(
+            comparison_name, genes, phenotypes, columns_a_b, chip, dependencies
+        )
         collection = interpret_collection(collection, genome)
         result_dir = kwargs.get(
             "result_dir",
-            Path("results/GSEA")
-            / genes.name
-            / f"{phenotypes[0]}_vs_{phenotypes[1]}"
-            / collection.name,
+            Path("results/GSEA") / genes.name / comparison_name / collection.name,
         )
         result_dir = result_dir.absolute()
         result_dir.mkdir(parents=True, exist_ok=True)
@@ -380,4 +383,4 @@ class GSEA:
         return ppg2.FileGeneratingJob(sentinel, __call)
 
     def __repr__(self) -> str:
-        return f"GSEA({self.version})"
+        return f"GSEA"
