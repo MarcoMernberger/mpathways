@@ -161,7 +161,7 @@ class GSEA:
         for key in kwargs:
             if key not in accepted_parameters:
                 warnings.warn(
-                    f"Keyword {key} argument not recognized, it will be ignored. Accepted arguments are: {accepted_parameters}."
+                    f"Keyword '{key}' argument not recognized, it will be ignored. Accepted arguments are: {accepted_parameters}."
                 )
 
     def check_arguments(
@@ -328,9 +328,9 @@ class GSEA:
         genome: EnsemblGenome,
         chip: Optional[MSigChipEnsembl] = None,
         annotators: List[Annotator] = [],
+        dependencies: List[Job] = [],
         **kwargs,
     ):
-        dependencies = []
         if chip is None:
             chip = MSigChipEnsembl(genome.species, "7.1")
         for anno in annotators:
@@ -364,23 +364,22 @@ class GSEA:
         return job, index_html
 
     def run_job(self, arguments: List[str], result_dir: Path, call_afterwards: Callable):
-        outfile = result_dir / "index.html"
+        # outfile = result_dir / "index.html"
         cmd = self.gsea_cmd(arguments)
         sentinel = result_dir / "sentinel.txt"
         sentinel = sentinel.relative_to("/project")
 
         def __call(sentinel: Path):
-            try:
-                with sentinel.open("w") as outp:
+            with sentinel.open("w") as outp:
+                try:
                     subprocess.run(cmd, capture_output=True, text=True, check=True)
                     call_afterwards()
-                    outp.write("GSEA command:\n" + " ".join(cmd))
-
-            except subprocess.CalledProcessError:
-                print(" ".join(cmd))
-                raise
+                except subprocess.CalledProcessError:
+                    print(" ".join(cmd))
+                    raise
+            outp.write("GSEA command:\n" + " ".join(cmd))
 
         return ppg2.FileGeneratingJob(sentinel, __call)
 
     def __repr__(self) -> str:
-        return f"GSEA"
+        return "GSEA"
