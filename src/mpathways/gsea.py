@@ -371,13 +371,13 @@ class GSEA:
 
         def __call(sentinel: Path):
             with sentinel.open("w") as outp:
+                outp.write("GSEA command:\n" + " ".join(cmd))
                 try:
                     subprocess.run(cmd, capture_output=True, text=True, check=True)
                     call_afterwards()
                 except subprocess.CalledProcessError:
                     print(" ".join(cmd))
                     raise
-            outp.write("GSEA command:\n" + " ".join(cmd))
 
         return ppg2.FileGeneratingJob(sentinel, __call)
 

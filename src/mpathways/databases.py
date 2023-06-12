@@ -434,5 +434,4 @@ def interpret_collection(
             )
         else:
             raise ValueError(f"Don't know how to interpret this collection: {collection}.")
-    print("interpret collection", type(collection), collection)
     return collection
