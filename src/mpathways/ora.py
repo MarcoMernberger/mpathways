@@ -252,6 +252,8 @@ class ORAHyper:
             else:
                 plt.title("no significant entries")
             plt.tight_layout()
+            print(fig, type(fig))
+            raise ValueError()
             return fig
 
         return MPPlotJob(
