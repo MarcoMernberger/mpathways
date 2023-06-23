@@ -346,7 +346,7 @@ class GSEA:
         result_dir = result_dir.absolute()
         result_dir.mkdir(parents=True, exist_ok=True)
         now = datetime.now()
-        rpt_label = now.strftime("%Y%m%d%H%M")
+        rpt_label = kwargs.pop("rpt_label", now.strftime("%Y%m%d"))
         index_html = (result_dir / "index.html").relative_to("/project")
         arguments = self.check_arguments(
             collection, gct, chip, clss, result_dir, rpt_label, **kwargs
