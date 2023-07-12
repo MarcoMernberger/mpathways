@@ -102,6 +102,26 @@ class GMTCollectionFromList(GMTCollection):  # ExternalDataBase
         return ppg2.FileGeneratingJob(gmt, __dump).depends_on(self.dependencies)
 
 
+class GMTCollectionFromFile(GMTCollection):
+    def __init__(
+        self,
+        collection_name: str,
+        filepath: Path,
+        genome: EnsemblGenome,
+    ):
+        super().__init__(collection_name, genome)
+        self.collection_name = collection_name
+        self.input_file = self.cache_dir / (self.name + ".gmt")
+        self.dependencies = [
+            ppg2.FileInvariant(filepath),
+            ppg2.ParameterInvariant(self.collection_name, self.collection_name),
+        ]
+        self._gmt = filepath
+
+    def write(self):
+        return []
+
+
 class MSigDBCollection(GMTCollection):
     def __init__(
         self,
@@ -335,6 +355,7 @@ class GCTWriter:
         columns_a_b: Tuple[List[str], List[str]],
         name: str = "Gct_df_default",
         dependencies: List[Job] = [],
+        **kwargs
     ):
         self.dependencies = dependencies
         if isinstance(genes_or_dataframe, Genes):
@@ -353,6 +374,7 @@ class GCTWriter:
             )
         )
         self._gct = self.cache_dir / "input.gct"
+        self.gct_writer_kwargs = kwargs
 
     @property
     def filename(self):
@@ -365,6 +387,7 @@ class GCTWriter:
             self.phenotypes,
             self.columns_a_b,
             self.dependencies,
+            **self.gct_writer_kwargs
         )
 
 
@@ -394,6 +417,9 @@ def generate_collection(name: str, genome: EnsemblGenome) -> GMTCollection:
             return MSigDBCollection(name, genome)
     elif name.startswith("ipa"):
         return IPACollection(name, genome)
+    elif Path(name).exists():
+        file_path = Path(name)
+        return GMTCollectionFromFile(file_path.name, file_path, genome)
     else:
         raise NotImplementedError(f"Don't know how to interpret this name: {name}.")
 

@@ -68,6 +68,7 @@ def write_gct(
     phenotypes: Tuple[str, str],
     columns_a_b: Tuple[List[str], List[str]],
     dependencies: List[Job] = [],
+    **kwargs
 ) -> FileGeneratingJob:
     """
     Creates a Job that writes expression data for GSEA at a specified
@@ -106,6 +107,10 @@ def write_gct(
             raise ValueError(
                 f"Parameter genes_or_dataframe must be an instance of Genes or DataFrame, was {type(genes_or_dataframe)}."
             )
+        if "gct_threshold" in kwargs:
+            df[df[columns_a_b[0] + columns_a_b[1]].max(axis=1) > kwargs["gct_threshold"]]  # at least in one sample
+        if "gct_offset" in kwargs:
+            df[columns_a_b[0] + columns_a_b[1]] = df[columns_a_b[0] + columns_a_b[1]] + kwargs["gct_offset"]
         with outfile.open("w") as handle:
             handle.write("#1.2\n")
             handle.write(f"{len(df)}\t{len(columns_a_b[0]) + len(columns_a_b[1])}\n")

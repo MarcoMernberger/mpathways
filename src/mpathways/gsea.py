@@ -281,11 +281,12 @@ class GSEA:
         columns_a_b: Tuple[List[str], List[str]],
         chip: Union[MSigChipEnsembl, None],
         dependencies: List[Job],
+        gct_kwargs: Dict[str, Any] = {},
     ):
         cls_writer = CLSWriter(comparison_name, phenotypes, columns_a_b)
         gct_name = f"Gct_{genes.name}_{phenotypes[0]}_vs_{phenotypes[1]}"
         gct_writer = GCTWriter(
-            comparison_name, genes, phenotypes, columns_a_b, gct_name, dependencies
+            comparison_name, genes, phenotypes, columns_a_b, gct_name, dependencies, **gct_kwargs
         )
         return cls_writer, gct_writer
 
@@ -335,8 +336,13 @@ class GSEA:
             chip = MSigChipEnsembl(genome.species, "7.1")
         for anno in annotators:
             dependencies.append(genes.add_annotator(anno))
+        gct_kwargs = {}
+        if "gct_threshold" in kwargs:
+            gct_kwargs["gct_threshold"] = kwargs.pop("gct_threshold")
+        if "gct_offset" in kwargs:
+            gct_kwargs["gct_offset"] = kwargs.pop("gct_offset")
         clss, gct = self.get_file_writer(
-            comparison_name, genes, phenotypes, columns_a_b, chip, dependencies
+            comparison_name, genes, phenotypes, columns_a_b, chip, dependencies, gct_kwargs=gct_kwargs
         )
         collection = interpret_collection(collection, genome)
         result_dir = kwargs.get(
